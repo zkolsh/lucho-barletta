@@ -1,10 +1,9 @@
+{-# LANGUAGE BangPatterns #-}
 module Main(main) where
 
 import qualified Data.Map as M
 import           Data.Map           (Map, (!))
 import           System.Environment (getArgs)
-
-import System.IO.Unsafe (unsafePerformIO)
 
 class PriorityQueue pq where
         pqempty :: pq a
@@ -16,7 +15,7 @@ class PriorityQueue pq where
 extractPQueue :: (PriorityQueue pq, Ord a) => pq a -> (a, pq a)
 extractPQueue pque = (pqfront pque, pqdequeue pque)
 
-data Heap a = HEmpty | HNode a Int (Heap a) (Heap a) deriving (Show, Eq)
+data Heap a = HEmpty | HNode !a !Int !(Heap a) !(Heap a) deriving (Show, Eq)
 
 heapFrom :: a -> Heap a
 heapFrom x = HNode x 1 HEmpty HEmpty
@@ -37,28 +36,21 @@ hsize :: Heap a -> Int
 hsize HEmpty = 0
 hsize (HNode _ s _ _) = s
 
-calcSize :: Heap a -> Heap a
-calcSize HEmpty = HEmpty
-calcSize (HNode x _ ls rs) = HNode x s sl sr
-        where sl = calcSize ls
-              sr = calcSize rs
-              s = 1 + hsize sl + hsize sr
-
 insertHeap :: Ord a => a -> Heap a -> Heap a
 insertHeap x HEmpty = HNode x 1 HEmpty HEmpty
 insertHeap x (HNode r s ls rs)
-        | x <  r && hsize ls <= hsize rs = calcSize $ HNode x s (insertHeap r ls) rs
-        | x <  r && hsize ls  > hsize rs = calcSize $ HNode x s ls (insertHeap r rs)
-        | x >= r && hsize ls <= hsize rs = calcSize $ HNode r s (insertHeap x ls) rs
-        | x >= r && hsize ls  > hsize rs = calcSize $ HNode r s ls (insertHeap x rs)
+        | x <  r && hsize ls <= hsize rs = HNode x (s + 1) (insertHeap r ls) rs
+        | x <  r && hsize ls  > hsize rs = HNode x (s + 1) ls (insertHeap r rs)
+        | x >= r && hsize ls <= hsize rs = HNode r (s + 1) (insertHeap x ls) rs
+        | x >= r && hsize ls  > hsize rs = HNode r (s + 1) ls (insertHeap x rs)
 
 deleteHeap :: Ord a => Heap a -> Heap a
 deleteHeap HEmpty = undefined
 deleteHeap (HNode _ _ ls HEmpty) = ls
 deleteHeap (HNode _ _ HEmpty rs) = rs
-deleteHeap (HNode t s a@(HNode l szl lls lrs) b@(HNode r szr rls rrs))
-        | l <= r = calcSize $ HNode l s (deleteHeap $ HNode t szl lls lrs) b
-        | l  > r = calcSize $ HNode r s a (deleteHeap $ HNode t szr rls rrs)
+deleteHeap (HNode t s a@(HNode l _ _ _) b@(HNode r _ _ _))
+        | l <= r = HNode l (s - 1) (deleteHeap a) b
+        | l  > r = HNode r (s - 1) a (deleteHeap b)
 
 leerArchivo :: FilePath -> IO (Int, Int, Int, [[Int]])
 leerArchivo archivo = do
@@ -89,20 +81,20 @@ instance Ord Paso where
 
 dijkstra :: Map (Int, Int) Int -> Int -> Int -> Int -> [Int]
 dijkstra grilla kinicial m n = go kinicial [] visitasInicial heapInicial
-        where heapInicial = heapFrom (Paso (0, 0) (grilla ! (0, 0)))
-              visitasInicial = listasAGrilla n m (replicate n (replicate m 0))
+        where !heapInicial = heapFrom (Paso (0, 0) (grilla ! (0, 0)))
+              !visitasInicial = listasAGrilla n m (replicate n (replicate m 0))
               go 0 acc _ _ = acc
-              go k acc visitas pq
+              go !k acc !visitas !pq
                 | pqisEmpty pq = acc
                 | x >= n || y >= m = go k acc visitas pq'
                 | x == (n - 1) && y == (m - 1) = go (k - 1) (c : acc) visitas' pq'
                 | visitas ! (x, y) >= k = go k acc visitas pq'
                 | otherwise = go k acc visitas' (pqenqueue abajo (pqenqueue derecha pq'))
                where (p, pq') = extractPQueue pq
-                     (Paso (x, y) c) = p
+                     (Paso (!x, !y) c) = p
                      visitas' = M.adjust (+1) (x, y) visitas
-                     abajo   = Paso (x, y + 1) (c + M.findWithDefault 999 (x, y + 1) grilla)
-                     derecha = Paso (x + 1, y) (c + M.findWithDefault 999 (x + 1, y) grilla)
+                     abajo   = Paso (x, y + 1) (c + M.findWithDefault 0 (x, y + 1) grilla)
+                     derecha = Paso (x + 1, y) (c + M.findWithDefault 0 (x + 1, y) grilla)
 
 run :: FilePath -> IO ()
 run archivo = do
